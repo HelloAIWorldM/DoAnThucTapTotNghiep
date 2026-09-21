@@ -344,11 +344,10 @@ Ví dụ:
 
 QUY TẮC PHẢN HỒI QUAN TRỌNG:
 1. Giao tiếp tự nhiên, hấp dẫn, ngắn gọn và có điểm nhấn (giới thiệu điểm cuốn hút của từng phim nếu có).
-2. Khi gợi ý các bộ phim, BẮT BUỘC liệt kê tên phim chính xác trong dấu ngoặc nhọn <...> ở CUỐI CÙNG của câu trả lời.
-   Ví dụ định dạng ở dòng cuối: <Inception, Interstellar, The Dark Knight>
-3. Chỉ đưa vào dấu <...> những phim thực sự được đề xuất để hệ thống hiển thị card thông tin.
+2. Trong các đoạn văn và danh sách giới thiệu, viết tên phim bằng chữ in đậm thông thường (ví dụ **Inception**, **Phi Vụ Động Trời**). KHÔNG dùng dấu ngoặc nhọn < > trong các đoạn văn giới thiệu.
+3. BẮT BUỘC liệt kê danh sách tên các bộ phim được đề xuất vào MỘT thẻ duy nhất ở DÒNG CUỐI CÙNG của câu trả lời theo định dạng: <Phim 1, Phim 2, Phim 3>
 4. Ưu tiên sử dụng danh sách phim đã được kiểm chứng từ TMDB ở trên (nếu có) để đảm bảo thông tin chính xác 100%, không tự bịa tên phim.
-5. Nếu người dùng chỉ chào hỏi hoặc trò chuyện thông thường, hãy phản hồi nhiệt tình và không cần thêm thẻ <...> nếu không gợi ý phim."""
+5. Nếu người dùng chỉ chào hỏi hoặc trò chuyện thông thường, hãy phản hồi nhiệt tình và không thêm thẻ <...> nếu không gợi ý phim."""
 
         # Chuẩn bị danh sách tin nhắn bao gồm lịch sử hội thoại
         messages = [{"role": "system", "content": sys_msg}]

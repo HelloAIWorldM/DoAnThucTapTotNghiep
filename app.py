@@ -197,8 +197,17 @@ async def main(message: cl.Message):
             if raw_title and len(raw_title) < 80 and not any(kw in raw_title.lower() for kw in ['lưu ý', 'chú ý', 'note', 'ví dụ', 'thể loại:']):
                 movies.append(raw_title)
 
-    # Làm sạch nội dung phản hồi, loại bỏ tag <...> để văn phong tự nhiên
-    clean_text = re.sub(r'<[^>]+>', "", full_response, flags=re.DOTALL).strip()
+    # Làm sạch nội dung phản hồi:
+    clean_text = full_response
+    last_tags = list(re.finditer(r'<([^>]+)>', clean_text))
+    if last_tags:
+        last_m = last_tags[-1]
+        # Bóc bỏ tag tổng hợp danh sách ở cuối (chứa dấu phẩy hoặc nằm sát cuối văn bản)
+        if ',' in last_m.group(1) or last_m.end() >= len(clean_text.rstrip()) - 5:
+            clean_text = clean_text[:last_m.start()] + clean_text[last_m.end():]
+
+    # Nếu trong thân bài có thẻ ngoặc nhọn dạng **<Tên Phim>**, giữ lại Tên Phim và chỉ gỡ bỏ cặp ngoặc < > để tránh bị mất tên phim
+    clean_text = re.sub(r'<([^>]+)>', r'\1', clean_text).strip()
     msg.content = clean_text or full_response
     await msg.update()
 
