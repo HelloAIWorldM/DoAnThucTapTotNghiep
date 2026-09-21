@@ -210,6 +210,15 @@ async def main(message: cl.Message):
             if raw_title and len(raw_title) < 80 and not any(kw in raw_title.lower() for kw in ['lưu ý', 'chú ý', 'note', 'ví dụ', 'thể loại:']):
                 movies.append(raw_title)
 
+    # Dự phòng thông minh: Nếu AI không xuất thẻ <...>, trích xuất từ các tên phim in đậm **Tên Phim**
+    if not movies:
+        bold_matches = re.findall(r'\*\*([^*]+)\*\*', full_response)
+        ignore_kws = ['chào', 'lưu ý', 'chú ý', 'note', 'trailer', 'youtube', 'thể loại', 'movie chat ai', 'hướng dẫn', 'điểm', 'năm', 'đạo diễn', 'phim 1', 'phim 2']
+        for bm in bold_matches:
+            title_candidate = bm.strip()
+            if 1 < len(title_candidate) < 60 and not any(kw in title_candidate.lower() for kw in ignore_kws):
+                movies.append(title_candidate)
+
     # Làm sạch nội dung phản hồi:
     clean_text = full_response
     last_tags = list(re.finditer(r'<([^>]+)>', clean_text))
