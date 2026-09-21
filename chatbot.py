@@ -195,8 +195,8 @@ class MovieChatbot:
             results = res.get('results', [])
 
             filtered = [m for m in results if m.get('poster_path') and m.get('vote_average', 0) > 5.0]
-            titles = [m['title'] for m in filtered[:5]]
-            return titles
+            titles = [(m.get('title') or m.get('original_title')) for m in filtered[:8]]
+            return [t for t in titles if t]
         except Exception as e:
             print(f"[TMDB] discover_movies error: {e}")
             return []
@@ -360,12 +360,17 @@ Ví dụ:
         sys_msg = f"""Bạn là Movie Chat AI - Trợ lý tư vấn và khám phá điện ảnh thông minh, thân thiện và am hiểu phim ảnh sâu sắc.
 {context}
 
-QUY TẮC PHẢN HỒI QUAN TRỌNG:
-1. Giao tiếp tự nhiên, hấp dẫn, ngắn gọn và có điểm nhấn (giới thiệu điểm cuốn hút của từng phim nếu có).
+THÔNG TIN QUAN TRỌNG VỀ TÍNH NĂNG HỆ THỐNG:
+- Giao diện người dùng của hệ thống ĐÃ TÍCH HỢP SẴN tính năng phát Trailer YouTube trực tiếp và nút xem Trailer YouTube cho từng bộ phim.
+- Khi người dùng yêu cầu xem trailer, tìm trailer hoặc nhắc đến "trailer", "youtube trailer": Bạn TUYỆT ĐỐI KHÔNG được từ chối hoặc nói rằng mình "không có khả năng truy cập YouTube / không phát được trailer". Hãy luôn nhiệt tình giới thiệu các bộ phim được yêu cầu và hướng dẫn người dùng bấm vào nút "Trailer" ngay dưới thẻ phim để xem video trực tiếp!
+- "Phi Vụ Động Trời" là tên tiếng Việt chính thức của phim hoạt hình Disney "Zootopia" (Judy Hopps và Nick Wilde), KHÔNG PHẢI là phim heist hay cướp ngân hàng.
+
+QUY TẮC PHẢN HỒI BẮT BUỘC:
+1. Khi người dùng yêu cầu danh sách phim hoặc hỏi trailer: Luôn nhiệt tình giới thiệu các bộ phim nổi bật; trình bày súc tích, cô đọng (1-2 câu điểm nhấn cho mỗi phim) để câu trả lời luôn trọn vẹn và không bao giờ bị cắt ngắn dòng cuối.
 2. Trong các đoạn văn và danh sách giới thiệu, viết tên phim bằng chữ in đậm thông thường (ví dụ **Inception**, **Phi Vụ Động Trời**). KHÔNG dùng dấu ngoặc nhọn < > trong các đoạn văn giới thiệu.
-3. BẮT BUỘC: Khi người dùng tìm kiếm, hỏi về một bộ phim/phần phim cụ thể (kể cả phim đang sản xuất hoặc sắp ra mắt đã có trên TMDB), hoặc khi bạn gợi ý phim, BẮT BUỘC liệt kê danh sách tên phim chính xác vào MỘT thẻ duy nhất ở DÒNG CUỐI CÙNG theo định dạng: <Phim 1, Phim 2> để hệ thống hiển thị thẻ phim.
+3. BẮT BUỘC: Khi người dùng tìm kiếm, hỏi trailer, hỏi về phim/phần phim cụ thể (kể cả phim đang sản xuất hoặc sắp ra mắt đã có trên TMDB), hoặc khi bạn gợi ý phim, BẮT BUỘC liệt kê danh sách tên các bộ phim được đề xuất vào MỘT thẻ duy nhất ở DÒNG CUỐI CÙNG theo định dạng: <Phim 1, Phim 2, Phim 3> để hệ thống tự động tải dữ liệu và hiển thị thẻ phim kèm video trailer, nút bấm xem trailer trực tiếp cho người dùng.
 4. Ưu tiên sử dụng danh sách phim đã được kiểm chứng từ TMDB ở trên (nếu có) để đảm bảo thông tin chính xác 100%, không tự bịa tên phim.
-5. Nếu người dùng chỉ chào hỏi hoặc trò chuyện thông thường không cần hiển thị phim, hãy phản hồi nhiệt tình và không thêm thẻ <...>."""
+5. Chỉ khi người dùng thuần túy chào hỏi (ví dụ: "chào bạn", "hello") mà không có ý định tìm hay hỏi phim gì thì mới không thêm thẻ <...>."""
 
         # Chuẩn bị danh sách tin nhắn bao gồm lịch sử hội thoại
         messages = [{"role": "system", "content": sys_msg}]
@@ -387,7 +392,7 @@ QUY TẮC PHẢN HỒI QUAN TRỌNG:
                 model=self.model,
                 stream=True,
                 temperature=0.6,
-                max_tokens=700
+                max_tokens=1200
             )
 
             for chunk in stream:

@@ -234,8 +234,8 @@ async def main(message: cl.Message):
 
     # Nếu có gợi ý phim, tải dữ liệu song song và hiển thị thẻ phim
     if movies:
-        # Lấy tối đa 5 phim để hiển thị tối ưu
-        unique_titles = list(dict.fromkeys(movies))[:5]
+        # Lấy tối đa 8 phim để hiển thị tối ưu
+        unique_titles = list(dict.fromkeys(movies))[:8]
         movie_infos = await get_all_movies_details(unique_titles)
 
         if movie_infos:
@@ -382,5 +382,5 @@ async def main(message: cl.Message):
             # Gửi thẻ phim và kèm theo các nút thao tác nhanh
             await cl.Message(
                 content=final_html,
-                actions=action_buttons[:8] # Giới hạn tối đa 8 actions để giao diện gọn gàng
+                actions=action_buttons[:10] # Giới hạn tối đa 10 actions để giao diện gọn gàng
             ).send()
