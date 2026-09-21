@@ -293,6 +293,7 @@ Ví dụ:
                     }
                     res = requests.post(url, json=payload, timeout=8)
                     if res.status_code == 200:
+                        res.encoding = 'utf-8'
                         data_json = res.json()
                         raw_response = data_json['candidates'][0]['content']['parts'][0]['text'].strip()
                 except Exception as g_err:
@@ -443,8 +444,15 @@ QUY TẮC PHẢN HỒI BẮT BUỘC:
                 res = requests.post(url, json=payload, stream=True, timeout=15)
 
                 if res.status_code == 200:
-                    for line in res.iter_lines(decode_unicode=True):
-                        if line and line.startswith('data: '):
+                    for raw_line in res.iter_lines():
+                        if not raw_line:
+                            continue
+                        try:
+                            line = raw_line.decode('utf-8')
+                        except UnicodeDecodeError:
+                            line = raw_line.decode('utf-8', errors='replace')
+
+                        if line.startswith('data: '):
                             try:
                                 chunk = json.loads(line[6:])
                                 text = chunk['candidates'][0]['content']['parts'][0]['text']
