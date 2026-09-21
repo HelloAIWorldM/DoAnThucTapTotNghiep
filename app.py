@@ -1,6 +1,8 @@
 import sys
 import os
 import re
+import html
+import urllib.parse
 import asyncio
 import requests
 import chainlit as cl
@@ -35,8 +37,19 @@ def fetch_single_movie_info(title):
                 results = requests.get(search_url_en, timeout=5).json().get('results', [])
 
             if results:
-                # Ưu tiên kết quả có ảnh poster, nếu không lấy kết quả đầu tiên
-                data = next((m for m in results if m.get('poster_path')), results[0])
+                # Ưu tiên khớp chính xác tên phim và phim có nhiều lượt đánh giá nhất (tránh nhầm các phần phim placeholder)
+                clean_query = title.strip().lower()
+                def rank_movie(m):
+                    t = (m.get('title') or '').strip().lower()
+                    ot = (m.get('original_title') or '').strip().lower()
+                    is_exact = 1 if (t == clean_query or ot == clean_query) else 0
+                    has_poster = 1 if m.get('poster_path') else 0
+                    vote_cnt = m.get('vote_count', 0)
+                    pop = m.get('popularity', 0)
+                    return (is_exact, has_poster, vote_cnt, pop)
+
+                results.sort(key=rank_movie, reverse=True)
+                data = results[0]
 
                 movie_id = data.get('id')
                 poster_path = data.get('poster_path')
@@ -63,7 +76,7 @@ def fetch_single_movie_info(title):
 
                 link_tmdb = f"https://www.themoviedb.org/movie/{movie_id}"
                 movie_name = data.get('title') or title
-                link_search = f"https://www.google.com/search?q=xem+phim+{movie_name.replace(' ', '+')}+vietsub"
+                link_search = f"https://www.google.com/search?q=xem+phim+{urllib.parse.quote_plus(movie_name)}+vietsub"
 
                 return {
                     "id": movie_id,
@@ -156,7 +169,7 @@ async def on_play_trailer(action: cl.Action):
         ).send()
     else:
         # Fallback tìm kiếm trailer trên YouTube nếu TMDB không có video
-        yt_search = f"https://www.youtube.com/results?search_query=trailer+phim+{title.replace(' ', '+')}"
+        yt_search = f"https://www.youtube.com/results?search_query=trailer+phim+{urllib.parse.quote_plus(title)}"
         await cl.Message(
             content=f"Chưa tìm thấy trailer trực tiếp trên TMDB cho phim **{title}**.\n[Bấm vào đây để xem Trailer trên YouTube]({yt_search})"
         ).send()
@@ -230,21 +243,29 @@ async def main(message: cl.Message):
             action_buttons = []
 
             for info in movie_infos:
+                safe_title = html.escape(str(info.get('title', '')))
+                safe_overview = html.escape(str(info.get('overview', '')))
+                safe_year = html.escape(str(info.get('year', 'N/A')))
+                safe_rating = html.escape(str(info.get('rating', '0.0')))
+                safe_poster = html.escape(str(info.get('poster', '')), quote=True)
+                safe_link_tmdb = html.escape(str(info.get('link_tmdb', '')), quote=True)
+                safe_link_search = html.escape(str(info.get('link_search', '')), quote=True)
+
                 # Tạo HTML tags thể loại
                 genres_badges = "".join([
-                    f'<span style="background: rgba(139, 92, 246, 0.12); color: #7c3aed; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;">{g}</span>'
-                    for g in info['genres']
+                    f'<span style="background: rgba(139, 92, 246, 0.12); color: #7c3aed; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;">{html.escape(str(g))}</span>'
+                    for g in info.get('genres', [])
                 ])
 
                 # Thông tin thời lượng
-                runtime_badge = f'<span class="movie-badge-neutral" style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;">{info["runtime"]}</span>' if info.get('runtime') else ""
+                runtime_badge = f'<span class="movie-badge-neutral" style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;">{html.escape(str(info["runtime"]))}</span>' if info.get('runtime') else ""
 
                 # Link hoặc nút trailer trên card
                 trailer_html = ""
                 if info.get('trailer_key'):
-                    trailer_url = f"https://www.youtube.com/watch?v={info['trailer_key']}"
+                    safe_trailer_url = html.escape(f"https://www.youtube.com/watch?v={info['trailer_key']}", quote=True)
                     trailer_html = f"""
-                    <a href="{trailer_url}" target="_blank" class="movie-btn movie-btn-trailer" style="
+                    <a href="{safe_trailer_url}" target="_blank" class="movie-btn movie-btn-trailer" style="
                         padding: 8px 16px; 
                         border-radius: 10px; 
                         font-size: 13px; 
@@ -266,7 +287,7 @@ async def main(message: cl.Message):
                     <div style="
                         width: 160px; 
                         min-width: 160px; 
-                        background-image: url('{info['poster']}'); 
+                        background-image: url('{safe_poster}'); 
                         background-size: cover; 
                         background-position: center; 
                         flex-shrink: 0;">
@@ -275,7 +296,7 @@ async def main(message: cl.Message):
                     <div style="flex: 1; padding: 18px 22px; display: flex; flex-direction: column; min-width: 0;">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 8px;">
                             <h3 class="movie-title" style="font-size: 19px; font-weight: 700; margin: 0; line-height: 1.3;">
-                                {info['title']}
+                                {safe_title}
                             </h3>
                             <span style="
                                 background: #FEF3C7; 
@@ -285,12 +306,12 @@ async def main(message: cl.Message):
                                 font-size: 13px; 
                                 font-weight: 700; 
                                 display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                                Điểm: {info['rating']}
+                                Điểm: {safe_rating}
                             </span>
                         </div>
                         
                         <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px;">
-                            <span class="movie-badge-neutral" style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;">Năm: {info['year']}</span>
+                            <span class="movie-badge-neutral" style="padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500;">Năm: {safe_year}</span>
                             {runtime_badge}
                             {genres_badges}
                         </div>
@@ -304,12 +325,12 @@ async def main(message: cl.Message):
                             -webkit-line-clamp: 3;
                             -webkit-box-orient: vertical;
                             overflow: hidden;">
-                            {info['overview']}
+                            {safe_overview}
                         </div>
                         
                         <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; align-items: center;">
                             {trailer_html}
-                            <a href="{info['link_tmdb']}" target="_blank" class="movie-btn movie-btn-secondary" style="
+                            <a href="{safe_link_tmdb}" target="_blank" class="movie-btn movie-btn-secondary" style="
                                 padding: 8px 16px; 
                                 border-radius: 10px; 
                                 font-size: 13px; 
@@ -318,7 +339,7 @@ async def main(message: cl.Message):
                                 display: inline-flex; align-items: center; gap: 6px;">
                                 Chi tiết TMDB
                             </a>
-                            <a href="{info['link_search']}" target="_blank" class="movie-btn" style="
+                            <a href="{safe_link_search}" target="_blank" class="movie-btn" style="
                                 padding: 8px 16px; 
                                 border-radius: 10px; 
                                 font-size: 13px; 

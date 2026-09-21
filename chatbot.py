@@ -71,8 +71,9 @@ class MovieChatbot:
 
     # ================= TMDB API SERVICES =================
     def search_movie(self, title):
-        """Tìm phim theo tiêu đề trên TMDB"""
+        """Tìm phim theo tiêu đề trên TMDB, ưu tiên khớp chính xác và độ phổ biến"""
         try:
+            clean_query = title.strip().lower()
             url = f"https://api.themoviedb.org/3/search/movie?api_key={self.tmdb_key}&query={title}&language=vi-VN"
             res = requests.get(url, timeout=5).json()
             results = res.get('results', [])
@@ -80,6 +81,20 @@ class MovieChatbot:
                 # Fallback search tiếng Anh nếu tiếng Việt không có
                 url_en = f"https://api.themoviedb.org/3/search/movie?api_key={self.tmdb_key}&query={title}&language=en-US"
                 results = requests.get(url_en, timeout=5).json().get('results', [])
+
+            if results:
+                # Ưu tiên: 1. Khớp chính xác tiêu đề tiếng Việt hoặc tiếng Anh -> 2. Có ảnh poster -> 3. Số lượt bình chọn vote_count
+                def rank_movie(m):
+                    t = (m.get('title') or '').strip().lower()
+                    ot = (m.get('original_title') or '').strip().lower()
+                    is_exact = 1 if (t == clean_query or ot == clean_query) else 0
+                    has_poster = 1 if m.get('poster_path') else 0
+                    vote_cnt = m.get('vote_count', 0)
+                    pop = m.get('popularity', 0)
+                    return (is_exact, has_poster, vote_cnt, pop)
+
+                results.sort(key=rank_movie, reverse=True)
+
             return results
         except Exception as e:
             print(f"[TMDB] search_movie error: {e}")
@@ -94,6 +109,8 @@ class MovieChatbot:
             target = results[0]
             target_id = target['id']
             target_name = target.get('title') or target.get('original_title')
+            orig_title = target.get('original_title')
+            display_target = f"{target_name} ({orig_title})" if orig_title and orig_title.lower() != target_name.lower() else target_name
 
             # Thử lấy recommendations
             rec_url = f"https://api.themoviedb.org/3/movie/{target_id}/recommendations?api_key={self.tmdb_key}&language=vi-VN"
@@ -106,7 +123,7 @@ class MovieChatbot:
 
             filtered = [m for m in rec_res if m.get('poster_path') and m.get('vote_average', 0) > 4.5]
             titles = [m['title'] for m in filtered[:5]]
-            return titles, target_name
+            return titles, display_target
         except Exception as e:
             print(f"[TMDB] get_movie_recommendations error: {e}")
             return [], None
@@ -333,7 +350,8 @@ Ví dụ:
                 search_res = self.search_movie(intent["movie_title"])
                 if search_res:
                     rec_movies = [m['title'] for m in search_res[:3]]
-                    context = f"Dữ liệu TMDB tìm thấy phim liên quan: {', '.join(rec_movies)}."
+                    details_summary = [f"{m['title']} (tên gốc: {m.get('original_title', '')}, năm {m.get('release_date', 'N/A')[:4]})" for m in search_res[:3]]
+                    context = f"Dữ liệu TMDB xác nhận phim liên quan trong hệ thống: {'; '.join(details_summary)}."
 
         except Exception as e:
             print(f"[CHAT] Context processing error: {e}")
@@ -345,9 +363,9 @@ Ví dụ:
 QUY TẮC PHẢN HỒI QUAN TRỌNG:
 1. Giao tiếp tự nhiên, hấp dẫn, ngắn gọn và có điểm nhấn (giới thiệu điểm cuốn hút của từng phim nếu có).
 2. Trong các đoạn văn và danh sách giới thiệu, viết tên phim bằng chữ in đậm thông thường (ví dụ **Inception**, **Phi Vụ Động Trời**). KHÔNG dùng dấu ngoặc nhọn < > trong các đoạn văn giới thiệu.
-3. BẮT BUỘC liệt kê danh sách tên các bộ phim được đề xuất vào MỘT thẻ duy nhất ở DÒNG CUỐI CÙNG của câu trả lời theo định dạng: <Phim 1, Phim 2, Phim 3>
+3. BẮT BUỘC: Khi người dùng tìm kiếm, hỏi về một bộ phim/phần phim cụ thể (kể cả phim đang sản xuất hoặc sắp ra mắt đã có trên TMDB), hoặc khi bạn gợi ý phim, BẮT BUỘC liệt kê danh sách tên phim chính xác vào MỘT thẻ duy nhất ở DÒNG CUỐI CÙNG theo định dạng: <Phim 1, Phim 2> để hệ thống hiển thị thẻ phim.
 4. Ưu tiên sử dụng danh sách phim đã được kiểm chứng từ TMDB ở trên (nếu có) để đảm bảo thông tin chính xác 100%, không tự bịa tên phim.
-5. Nếu người dùng chỉ chào hỏi hoặc trò chuyện thông thường, hãy phản hồi nhiệt tình và không thêm thẻ <...> nếu không gợi ý phim."""
+5. Nếu người dùng chỉ chào hỏi hoặc trò chuyện thông thường không cần hiển thị phim, hãy phản hồi nhiệt tình và không thêm thẻ <...>."""
 
         # Chuẩn bị danh sách tin nhắn bao gồm lịch sử hội thoại
         messages = [{"role": "system", "content": sys_msg}]
