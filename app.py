@@ -21,8 +21,9 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-bot = MovieChatbot(GROQ_API_KEY, TMDB_API_KEY)
+bot = MovieChatbot(GROQ_API_KEY, TMDB_API_KEY, GEMINI_API_KEY)
 
 def fetch_single_movie_info(title):
     """Lấy chi tiết một bộ phim từ TMDB (poster, rating, năm, thời lượng, thể loại, trailer)"""

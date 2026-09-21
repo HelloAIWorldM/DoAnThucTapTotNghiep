@@ -17,24 +17,26 @@ except ImportError:
     Groq = None
 
 class MovieChatbot:
-    def __init__(self, groq_api_key, tmdb_api_key):
+    def __init__(self, groq_api_key=None, tmdb_api_key=None, gemini_api_key=None):
         self.tmdb_key = tmdb_api_key
         self.groq_key = groq_api_key
+        self.gemini_key = gemini_api_key
         self.model = "qwen/qwen3.8-27b"
+        self.gemini_model = "gemini-3.5-flash-lite"
         self.is_active = False
+        self.client = None
 
-        if Groq is None:
-            print("[WARNING] Thu vien 'groq' chua duoc cai dat. Vui long chay: pip install -r requirements.txt")
-            return
+        if self.gemini_key and self.gemini_key.strip():
+            self.is_active = True
+            print(f"[INFO] Google Gemini client enabled as primary model: {self.gemini_model}")
 
-        try:
-            if groq_api_key and groq_api_key.strip():
+        if Groq is not None and groq_api_key and groq_api_key.strip():
+            try:
                 self.client = Groq(api_key=groq_api_key)
-                self.model = "qwen/qwen3.8-27b"
                 self.is_active = True
-                print(f"[INFO] Groq client initialized successfully with model: {self.model}")
-        except Exception as e:
-            print(f"[ERROR] Groq client init failed: {e}")
+                print(f"[INFO] Groq client initialized successfully with model: {self.model} (Fallback)")
+            except Exception as e:
+                print(f"[ERROR] Groq client init failed: {e}")
 
         # Bản đồ thể loại tiếng Việt sang TMDB Genre ID
         self.genres_map = {
@@ -279,18 +281,38 @@ Ví dụ:
 - "Chào bạn" hoặc "Bạn là ai" -> {{"intent_type": "chat", "movie_title": null, "person": null, "genre": null, "year": null, "country": null}}
 """
 
-            response = self.client.chat.completions.create(
-                messages=[{"role": "user", "content": analysis_prompt}],
-                model=self.model,
-                temperature=0.1,
-                max_tokens=150
-            ).choices[0].message.content.strip()
+            raw_response = None
 
-            # Làm sạch chuỗi JSON nếu có bao quanh bởi markdown
-            cleaned_json = re.sub(r'^```json\s*', '', response)
-            cleaned_json = re.sub(r'\s*```$', '', cleaned_json).strip()
-            data = json.loads(cleaned_json)
-            return data
+            # 1. Ưu tiên phân tích qua Gemini
+            if self.gemini_key:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.gemini_key}"
+                    payload = {
+                        "contents": [{"parts": [{"text": analysis_prompt}]}],
+                        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 200}
+                    }
+                    res = requests.post(url, json=payload, timeout=8)
+                    if res.status_code == 200:
+                        data_json = res.json()
+                        raw_response = data_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                except Exception as g_err:
+                    print(f"[INTENT] Gemini intent error, fallback to Groq: {g_err}")
+
+            # 2. Fallback sang Groq nếu Gemini không phản hồi
+            if not raw_response and self.client:
+                response = self.client.chat.completions.create(
+                    messages=[{"role": "user", "content": analysis_prompt}],
+                    model=self.model,
+                    temperature=0.1,
+                    max_tokens=150
+                ).choices[0].message.content.strip()
+                raw_response = response
+
+            if raw_response:
+                cleaned_json = re.sub(r'^```json\s*', '', raw_response)
+                cleaned_json = re.sub(r'\s*```$', '', cleaned_json).strip()
+                data = json.loads(cleaned_json)
+                return data
         except Exception as e:
             print(f"[INTENT] Intent extraction error: {e}")
             # Fallback đơn giản bằng từ khóa
@@ -386,18 +408,70 @@ QUY TẮC PHẢN HỒI BẮT BUỘC:
         # Thêm câu hỏi hiện tại
         messages.append({"role": "user", "content": user_input})
 
-        try:
-            stream = self.client.chat.completions.create(
-                messages=messages,
-                model=self.model,
-                stream=True,
-                temperature=0.6,
-                max_tokens=1200
-            )
+        gemini_success = False
 
-            for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield content
-        except Exception as e:
-            yield f"\n\n[Lỗi tạo nội dung từ AI]: {str(e)}"
+        # 1. Ưu tiên stream từ Google Gemini
+        if self.gemini_key:
+            try:
+                gemini_contents = []
+                if history:
+                    for h in history[-6:]:
+                        if h.get("role") and h.get("content"):
+                            clean_h = re.sub(r'<.*?>', '', h["content"]).strip()
+                            role = "user" if h["role"] == "user" else "model"
+                            gemini_contents.append({
+                                "role": role,
+                                "parts": [{"text": clean_h}]
+                            })
+                gemini_contents.append({
+                    "role": "user",
+                    "parts": [{"text": user_input}]
+                })
+
+                payload = {
+                    "systemInstruction": {
+                        "parts": [{"text": sys_msg}]
+                    },
+                    "contents": gemini_contents,
+                    "generationConfig": {
+                        "temperature": 0.6,
+                        "maxOutputTokens": 1200
+                    }
+                }
+
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:streamGenerateContent?key={self.gemini_key}&alt=sse"
+                res = requests.post(url, json=payload, stream=True, timeout=15)
+
+                if res.status_code == 200:
+                    for line in res.iter_lines(decode_unicode=True):
+                        if line and line.startswith('data: '):
+                            try:
+                                chunk = json.loads(line[6:])
+                                text = chunk['candidates'][0]['content']['parts'][0]['text']
+                                if text:
+                                    gemini_success = True
+                                    yield text
+                            except Exception:
+                                pass
+                else:
+                    print(f"[GEMINI] Status {res.status_code}, switching to Groq fallback...")
+            except Exception as e:
+                print(f"[GEMINI STREAM ERROR] {e}, switching to Groq fallback...")
+
+        # 2. Fallback sang Groq nếu Gemini chưa stream hoặc gặp lỗi
+        if not gemini_success and self.client:
+            try:
+                stream = self.client.chat.completions.create(
+                    messages=messages,
+                    model=self.model,
+                    stream=True,
+                    temperature=0.6,
+                    max_tokens=1200
+                )
+
+                for chunk in stream:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+            except Exception as e:
+                yield f"\n\n[Lỗi tạo nội dung từ AI]: {str(e)}"
