@@ -1,0 +1,21 @@
+# Environment variables
+.env
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Chainlit internal files
+.files/
+
+# IDE files
+.vscode/
+.idea/

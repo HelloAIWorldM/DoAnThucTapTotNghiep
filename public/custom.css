@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+/* === BIẾN MÀU THEME CHO LIGHT VÀ DARK MODE === */
+:root {
+    --app-bg: linear-gradient(135deg, #FAF5FF 0%, #F5F3FF 50%, #FFF1F2 100%);
+    --card-bg: rgba(255, 255, 255, 0.95);
+    --card-border: rgba(229, 231, 235, 0.9);
+    --card-shadow: rgba(0, 0, 0, 0.05);
+    --card-shadow-hover: rgba(124, 58, 237, 0.15);
+    --text-title: #0F172A;
+    --text-body: #475569;
+    --text-muted: #64748B;
+    --input-bg: rgba(255, 255, 255, 0.95);
+    --input-border: #E9D5FF;
+    --badge-bg: #F1F5F9;
+    --badge-text: #475569;
+    --btn-secondary-bg: #F1F5F9;
+    --btn-secondary-text: #334155;
+    --btn-trailer-bg: #FEF2F2;
+    --btn-trailer-text: #DC2626;
+    --btn-trailer-border: #FECACA;
+}
+
+/* Dark Mode Variables */
+html.dark, body.dark, [data-theme="dark"], .dark {
+    --app-bg: #0B0F19 !important;
+    --card-bg: rgba(24, 32, 47, 0.95) !important;
+    --card-border: rgba(51, 65, 85, 0.75) !important;
+    --card-shadow: rgba(0, 0, 0, 0.35) !important;
+    --card-shadow-hover: rgba(139, 92, 246, 0.25) !important;
+    --text-title: #F8FAFC !important;
+    --text-body: #CBD5E1 !important;
+    --text-muted: #94A3B8 !important;
+    --input-bg: rgba(24, 32, 47, 0.95) !important;
+    --input-border: #4C1D95 !important;
+    --badge-bg: rgba(51, 65, 85, 0.8) !important;
+    --badge-text: #E2E8F0 !important;
+    --btn-secondary-bg: rgba(51, 65, 85, 0.8) !important;
+    --btn-secondary-text: #E2E8F0 !important;
+    --btn-trailer-bg: rgba(153, 27, 27, 0.25) !important;
+    --btn-trailer-text: #FCA5A5 !important;
+    --btn-trailer-border: rgba(239, 68, 68, 0.4) !important;
+}
+
+/* Tổng quan giao diện */
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background: var(--app-bg) !important;
+    transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* Thanh nhập nội dung chat */
+.cl-chat-input textarea {
+    border-radius: 20px !important;
+    border: 1.5px solid var(--input-border) !important;
+    background: var(--input-bg) !important;
+    color: var(--text-title) !important;
+    box-shadow: 0 4px 20px var(--card-shadow) !important;
+    padding: 14px 20px !important;
+    font-size: 15px !important;
+    transition: all 0.25s ease;
+}
+
+.cl-chat-input textarea:focus {
+    border-color: #8B5CF6 !important;
+    box-shadow: 0 4px 25px rgba(139, 92, 246, 0.25) !important;
+}
+
+/* Danh sách thẻ phim */
+.movie-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-top: 15px;
+    width: 100%;
+}
+
+/* Thẻ phim chi tiết */
+.movie-card {
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    border: 1px solid var(--card-border) !important;
+    background: var(--card-bg) !important;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 6px 24px var(--card-shadow) !important;
+}
+
+.movie-card:hover {
+    transform: translateY(-4px) !important;
+    box-shadow: 0 16px 36px var(--card-shadow-hover) !important;
+    border-color: #A78BFA !important;
+}
+
+.movie-title {
+    color: var(--text-title) !important;
+}
+
+.movie-overview {
+    color: var(--text-body) !important;
+}
+
+.movie-badge-neutral {
+    background: var(--badge-bg) !important;
+    color: var(--badge-text) !important;
+}
+
+/* Các nút bấm tương tác */
+.movie-btn {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.movie-btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.08);
+}
+
+.movie-btn-secondary {
+    background: var(--btn-secondary-bg) !important;
+    color: var(--btn-secondary-text) !important;
+}
+
+.movie-btn-trailer {
+    background: var(--btn-trailer-bg) !important;
+    color: var(--btn-trailer-text) !important;
+    border: 1px solid var(--btn-trailer-border) !important;
+}
+
+.movie-btn-trailer:hover {
+    filter: brightness(1.1) !important;
+}
+
+/* Tin nhắn và văn bản */
+.cl-message-content {
+    font-size: 15px !important;
+    line-height: 1.65 !important;
+    color: var(--text-title) !important;
+}
+
+/* Tinh chỉnh nút Action Buttons của Chainlit */
+button[id^="action-"] {
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 8px var(--card-shadow) !important;
+}
+
+button[id^="action-"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2) !important;
+}
+
+/* Ẩn hoặc làm đẹp ảnh logo nếu chưa có */
+img[alt="logo"] {
+    max-height: 48px !important;
+    object-fit: contain;
+}
+
+/* Responsive cho màn hình nhỏ */
+@media (max-width: 640px) {
+    .movie-card {
+        flex-direction: column !important;
+    }
+    .movie-card > div:first-child {
+        width: 100% !important;
+        height: 220px !important;
+    }
+}

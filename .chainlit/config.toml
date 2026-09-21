@@ -1,0 +1,20 @@
+[project]
+name = "Movie Chat"
+user_env = []
+session_timeout = 3600
+cache = false
+
+[UI]
+name = "Movie Chat"
+description = "Khám phá phim hay với AI"
+hide_watermark = true
+custom_css = "/public/custom.css"
+default_theme = "light"
+
+[meta]
+generated_by = "1.3.0"
+
+[features]
+# --- BẮT BUỘC PHẢI LÀ TRUE ĐỂ KHÔNG BỊ LỖI RAW CODE ---
+unsafe_allow_html = true
+latex = false

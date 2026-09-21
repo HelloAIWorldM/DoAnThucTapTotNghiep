@@ -1,0 +1,19 @@
+{
+  "custom_fonts": ["https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"],
+  "variables": {
+    "light": {
+      "background": "#F8FAFC", 
+      "paper": "#FFFFFF",
+      "primary": "#7C3AED",
+      "text-primary": "#0F172A",
+      "text-secondary": "#475569"
+    },
+    "dark": {
+      "background": "#0B0F19", 
+      "paper": "#1E293B",
+      "primary": "#8B5CF6",
+      "text-primary": "#F8FAFC",
+      "text-secondary": "#94A3B8"
+    }
+  }
+}
