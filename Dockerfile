@@ -25,6 +25,9 @@ USER user
 
 # Thiết lập biến môi trường
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONIOENCODING=utf-8
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 # Expose các cổng thông dụng (Render dùng 10000, HF Spaces dùng 7860, Chainlit mặc định 8000)
 EXPOSE 8000 7860 10000

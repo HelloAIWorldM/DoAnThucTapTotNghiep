@@ -452,9 +452,12 @@ QUY TẮC PHẢN HỒI BẮT BUỘC:
                         except UnicodeDecodeError:
                             line = raw_line.decode('utf-8', errors='replace')
 
-                        if line.startswith('data: '):
+                        if line.startswith('data:'):
                             try:
-                                chunk = json.loads(line[6:])
+                                json_part = line[5:].strip()
+                                if not json_part:
+                                    continue
+                                chunk = json.loads(json_part)
                                 text = chunk['candidates'][0]['content']['parts'][0]['text']
                                 if text:
                                     gemini_success = True
