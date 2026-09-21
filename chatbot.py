@@ -60,6 +60,74 @@ class MovieChatbot:
             'miền tây': 37, 'western': 37
         }
 
+        # Bản đồ hãng phim / vũ trụ điện ảnh sang TMDB Company ID
+        self.studios_map = {
+            # Marvel Cinematic Universe (MCU)
+            'marvel': 420,
+            'mcu': 420,
+            'vũ trụ marvel': 420,
+            'vu tru marvel': 420,
+            'marvel studios': 420,
+            'marvel cinematic universe': 420,
+            # DC Universe
+            'dc': 128064,
+            'dceu': 128064,
+            'vũ trụ dc': 128064,
+            'vu tru dc': 128064,
+            'dc studios': 128064,
+            'dc comics': 9993,
+            # Disney & Pixar
+            'disney': 2,
+            'walt disney': 2,
+            'disney animation': 6125,
+            'pixar': 3,
+            # Anime & Studio hoạt hình danh tiếng
+            'ghibli': 10342,
+            'studio ghibli': 10342,
+            'dreamworks': 521,
+            'illumination': 3341,
+            # Các hãng phim lớn khác
+            'warner bros': 174,
+            'warner': 174,
+            'universal': 33,
+            'universal pictures': 33,
+            'sony': 5,
+            'sony pictures': 5,
+            'paramount': 4,
+            'paramount pictures': 4,
+            '20th century': 127928,
+            'lucasfilm': 1,
+            'a24': 41077,
+            'netflix': 178464,
+        }
+
+        # Bản đồ từ khóa chủ đề sang TMDB Keyword ID
+        self.keywords_map = {
+            'siêu anh hùng': 9715,
+            'sieu anh hung': 9715,
+            'superhero': 9715,
+            'zombie': 12377,
+            'xác sống': 12377,
+            'xac song': 12377,
+            'quái vật': 1299,
+            'quai vat': 1299,
+            'vũ trụ': 9882,
+            'space': 9882,
+            'người ngoài hành tinh': 9951,
+            'alien': 9951,
+            'du hành thời gian': 4379,
+            'time travel': 4379,
+            'trí tuệ nhân tạo': 310,
+            'ai': 310,
+            'robot': 14544,
+            'sát thủ': 10714,
+            'assassin': 10714,
+            'ma cà rồng': 3133,
+            'vampire': 3133,
+            'phép thuật': 2343,
+            'magic': 2343,
+        }
+
         # Bản đồ ngôn ngữ / quốc gia
         self.languages_map = {
             'hàn quốc': 'ko', 'hàn': 'ko', 'korea': 'ko',
@@ -168,6 +236,47 @@ class MovieChatbot:
             print(f"[TMDB] get_movies_by_person error: {e}")
             return [], None
 
+    def get_movies_by_studio(self, studio_name):
+        """Lấy danh sách tác phẩm kinh điển, điểm cao của một hãng phim / vũ trụ điện ảnh"""
+        try:
+            clean_name = studio_name.lower().strip()
+            company_id = self.studios_map.get(clean_name)
+            official_name = studio_name
+
+            if not company_id:
+                # Tìm kiếm công ty trên TMDB nếu chưa có trong map
+                search_url = f"https://api.themoviedb.org/3/search/company?api_key={self.tmdb_key}&query={studio_name}"
+                c_res = requests.get(search_url, timeout=5).json().get('results', [])
+                if c_res:
+                    company_id = c_res[0]['id']
+                    official_name = c_res[0].get('name', studio_name)
+
+            if not company_id:
+                return [], studio_name
+
+            # Ưu tiên lấy theo vote_count.desc để ra các phim kinh điển, nổi tiếng nhất (như Iron Man, Avengers, The Dark Knight)
+            url = f"https://api.themoviedb.org/3/discover/movie?api_key={self.tmdb_key}&with_companies={company_id}&sort_by=vote_count.desc&vote_count.gte=100&language=vi-VN"
+            res = requests.get(url, timeout=5).json().get('results', [])
+
+            if not res or len(res) < 3:
+                # Fallback nếu vote_count quá cao ít kết quả
+                url_pop = f"https://api.themoviedb.org/3/discover/movie?api_key={self.tmdb_key}&with_companies={company_id}&sort_by=popularity.desc&vote_count.gte=30&language=vi-VN"
+                res += requests.get(url_pop, timeout=5).json().get('results', [])
+
+            seen_ids = set()
+            filtered = []
+            for m in res:
+                mid = m.get('id')
+                if mid and mid not in seen_ids and m.get('poster_path') and m.get('vote_average', 0) > 5.0:
+                    seen_ids.add(mid)
+                    filtered.append(m)
+
+            titles = [(m.get('title') or m.get('original_title')) for m in filtered[:6]]
+            return [t for t in titles if t], official_name
+        except Exception as e:
+            print(f"[TMDB] get_movies_by_studio error: {e}")
+            return [], studio_name
+
     def discover_movies(self, genre_keyword=None, year=None, country=None):
         """Khám phá phim theo thể loại, năm hoặc quốc gia"""
         try:
@@ -180,9 +289,26 @@ class MovieChatbot:
             }
 
             if genre_keyword:
-                gid = self.genres_map.get(genre_keyword.lower().strip())
+                clean_g = genre_keyword.lower().strip()
+                # 1. Kiểm tra nếu là studio / vũ trụ điện ảnh
+                if clean_g in self.studios_map:
+                    studio_movies, _ = self.get_movies_by_studio(clean_g)
+                    if studio_movies:
+                        return studio_movies
+
+                # 2. Kiểm tra nếu là thể loại chuẩn
+                gid = self.genres_map.get(clean_g)
                 if gid:
                     params['with_genres'] = gid
+                # 3. Kiểm tra nếu là từ khóa chủ đề (siêu anh hùng, zombie...)
+                elif clean_g in self.keywords_map:
+                    params['with_keywords'] = self.keywords_map[clean_g]
+                else:
+                    # Nếu từ khóa không nằm trong bất kỳ danh mục nào, tìm trực tiếp qua search_movie
+                    search_res = self.search_movie(genre_keyword)
+                    if search_res:
+                        return [m['title'] for m in search_res[:5] if m.get('poster_path')]
+                    return []
 
             if year and str(year).isdigit():
                 params['primary_release_year'] = int(year)
@@ -265,20 +391,25 @@ Yêu cầu hiện tại: "{user_input}"
 
 Cấu trúc JSON bắt buộc:
 {{
-  "intent_type": "person" | "similar" | "genre" | "random" | "search_movie" | "chat",
-  "movie_title": "tên phim được nhắc tới hoặc null",
+  "intent_type": "studio" | "person" | "similar" | "genre" | "random" | "search_movie" | "chat",
+  "studio": "hãng phim hoặc vũ trụ điện ảnh (ví dụ: Marvel, MCU, DC, Disney, Pixar, Ghibli, Warner Bros...) hoặc null",
+  "movie_title": "tên phim hoặc nhân vật chính (ví dụ: Iron Man, Batman, Thanos, Zootopia) hoặc null",
   "person": "tên diễn viên hoặc đạo diễn hoặc null",
-  "genre": "thể loại phim (ví dụ: hành động, lãng mạn, kinh dị, hoạt hình, viễn tưởng...) hoặc null",
+  "genre": "thể loại phim hoặc chủ đề (ví dụ: hành động, siêu anh hùng, lãng mạn, kinh dị, hoạt hình, viễn tưởng...) hoặc null",
   "year": "năm hoặc null",
   "country": "quốc gia (ví dụ: hàn quốc, nhật bản, việt nam, mỹ, trung quốc...) hoặc null"
 }}
 
 Ví dụ:
-- "Phim của Tom Cruise" -> {{"intent_type": "person", "movie_title": null, "person": "Tom Cruise", "genre": null, "year": null, "country": null}}
-- "Có phim nào giống Interstellar không" -> {{"intent_type": "similar", "movie_title": "Interstellar", "person": null, "genre": null, "year": null, "country": null}}
-- "Gợi ý phim hoạt hình anime Nhật Bản" -> {{"intent_type": "genre", "movie_title": null, "person": null, "genre": "hoạt hình", "year": null, "country": "nhật bản"}}
-- "Hôm nay xem gì" hoặc "Chọn ngẫu nhiên cho tôi" -> {{"intent_type": "random", "movie_title": null, "person": null, "genre": null, "year": null, "country": null}}
-- "Chào bạn" hoặc "Bạn là ai" -> {{"intent_type": "chat", "movie_title": null, "person": null, "genre": null, "year": null, "country": null}}
+- "Phim marvel" hoặc "Marvel" hoặc "Vũ trụ Marvel" -> {{"intent_type": "studio", "studio": "Marvel", "movie_title": null, "person": null, "genre": null, "year": null, "country": null}}
+- "Phim của hãng Pixar" hoặc "Phim hoạt hình Ghibli" -> {{"intent_type": "studio", "studio": "Pixar", "movie_title": null, "person": null, "genre": "hoạt hình", "year": null, "country": null}}
+- "Phim của Tom Cruise" -> {{"intent_type": "person", "studio": null, "movie_title": null, "person": "Tom Cruise", "genre": null, "year": null, "country": null}}
+- "Có phim nào giống Interstellar không" -> {{"intent_type": "similar", "studio": null, "movie_title": "Interstellar", "person": null, "genre": null, "year": null, "country": null}}
+- "Gợi ý phim hoạt hình anime Nhật Bản" -> {{"intent_type": "genre", "studio": null, "movie_title": null, "person": null, "genre": "hoạt hình", "year": null, "country": "nhật bản"}}
+- "Phim siêu anh hùng hay nhất" -> {{"intent_type": "genre", "studio": null, "movie_title": null, "person": null, "genre": "siêu anh hùng", "year": null, "country": null}}
+- "Có phim nào liên quan đến Thanos không" -> {{"intent_type": "search_movie", "studio": "Marvel", "movie_title": "Thanos", "person": null, "genre": "siêu anh hùng", "year": null, "country": null}}
+- "Hôm nay xem gì" hoặc "Chọn ngẫu nhiên cho tôi" -> {{"intent_type": "random", "studio": null, "movie_title": null, "person": null, "genre": null, "year": null, "country": null}}
+- "Chào bạn" hoặc "Bạn là ai" -> {{"intent_type": "chat", "studio": null, "movie_title": null, "person": null, "genre": null, "year": null, "country": null}}
 """
 
             raw_response = None
@@ -320,6 +451,9 @@ Ví dụ:
             lower_text = user_input.lower()
             if any(w in lower_text for w in ["ngẫu nhiên", "xem gì", "surprise", "hôm nay xem"]):
                 return {"intent_type": "random"}
+            for s in self.studios_map.keys():
+                if s in lower_text:
+                    return {"intent_type": "studio", "studio": s}
             for g in self.genres_map.keys():
                 if g in lower_text:
                     return {"intent_type": "genre", "genre": g}
@@ -339,7 +473,13 @@ Ví dụ:
             intent = self.extract_intent(user_input, history)
             intent_type = intent.get("intent_type", "chat")
 
-            if intent_type == "person" and intent.get("person"):
+            if intent_type == "studio" or intent.get("studio"):
+                studio_kw = intent.get("studio") or user_input
+                rec_movies, real_name = self.get_movies_by_studio(studio_kw)
+                if rec_movies:
+                    context = f"Dữ liệu TMDB xác nhận: Các siêu phẩm kinh điển và nổi tiếng nhất của {real_name}: {', '.join(rec_movies)}."
+
+            elif intent_type == "person" and intent.get("person"):
                 person_name = intent["person"]
                 rec_movies, real_name = self.get_movies_by_person(person_name)
                 if rec_movies:
@@ -358,7 +498,7 @@ Ví dụ:
                 rec_movies = self.discover_movies(genre_kw, year, country)
                 if rec_movies:
                     desc_parts = []
-                    if genre_kw: desc_parts.append(f"thể loại {genre_kw}")
+                    if genre_kw: desc_parts.append(f"chủ đề {genre_kw}")
                     if country: desc_parts.append(f"quốc gia {country}")
                     if year: desc_parts.append(f"năm {year}")
                     desc = ", ".join(desc_parts) if desc_parts else "phổ biến"
@@ -370,11 +510,25 @@ Ví dụ:
                     context = f"Dữ liệu TMDB gợi ý ngẫu nhiên bộ phim xuất sắc: {', '.join(rec_movies)}."
 
             elif intent_type == "search_movie" and intent.get("movie_title"):
-                search_res = self.search_movie(intent["movie_title"])
-                if search_res:
-                    rec_movies = [m['title'] for m in search_res[:3]]
-                    details_summary = [f"{m['title']} (tên gốc: {m.get('original_title', '')}, năm {m.get('release_date', 'N/A')[:4]})" for m in search_res[:3]]
-                    context = f"Dữ liệu TMDB xác nhận phim liên quan trong hệ thống: {'; '.join(details_summary)}."
+                movie_query = intent["movie_title"]
+                # Nếu truy vấn tìm kiếm trùng với tên một studio (ví dụ 'marvel'), ưu tiên tìm theo studio
+                if movie_query.lower().strip() in self.studios_map:
+                    rec_movies, real_name = self.get_movies_by_studio(movie_query)
+                    if rec_movies:
+                        context = f"Dữ liệu TMDB xác nhận: Các siêu phẩm của {real_name}: {', '.join(rec_movies)}."
+                else:
+                    search_res = self.search_movie(movie_query)
+                    # Lọc các kết quả có độ tin cậy cao
+                    valid_res = [m for m in search_res if m.get('vote_count', 0) >= 20 or m.get('vote_average', 0) >= 5.0]
+                    if valid_res:
+                        rec_movies = [m['title'] for m in valid_res[:4]]
+                        details_summary = [f"{m['title']} (tên gốc: {m.get('original_title', '')}, năm {m.get('release_date', 'N/A')[:4]})" for m in valid_res[:4]]
+                        context = f"Dữ liệu TMDB xác nhận phim liên quan trong hệ thống: {'; '.join(details_summary)}."
+                    elif intent.get("studio"):
+                        # Nếu tìm nhân vật/từ khóa chưa ra phim riêng nhưng có studio liên kết (ví dụ: Thanos thuộc Marvel)
+                        rec_movies, real_name = self.get_movies_by_studio(intent["studio"])
+                        if rec_movies:
+                            context = f"Dữ liệu TMDB xác nhận: Các tác phẩm nổi bật của {real_name} liên quan: {', '.join(rec_movies)}."
 
         except Exception as e:
             print(f"[CHAT] Context processing error: {e}")
@@ -383,10 +537,14 @@ Ví dụ:
         sys_msg = f"""Bạn là Movie Chat AI - Trợ lý tư vấn và khám phá điện ảnh thông minh, thân thiện và am hiểu phim ảnh sâu sắc.
 {context}
 
+THÔNG TIN QUAN TRỌNG VỀ VŨ TRỤ ĐIỆN ẢNH VÀ NHÂN VẬT:
+- Với Vũ trụ Điện ảnh Marvel (MCU), các siêu anh hùng và biểu tượng kinh điển gồm: Iron Man (Người Sắt - Tony Stark), Captain America, Thor, Hulk (Người Khổng Lồ Xanh), Spider-Man (Người Nhện), Black Panther, Doctor Strange, Black Widow, và đại phản diện Thanos cùng biệt đội Avengers (Avengers: Infinity War, Avengers: Endgame...). Khi người dùng hỏi về Marvel, hãy luôn tập trung vào các siêu phẩm bom tấn cốt lõi của Marvel Cinematic Universe.
+- Khi người dùng hỏi về một nhân vật siêu anh hùng hoặc phản diện (như Thanos, Hulk, Iron Man, Joker, Batman...), hãy giải thích ngắn gọn nhân vật đó xuất hiện trong những tác phẩm kinh điển nào và nhiệt tình giới thiệu các bộ phim đó.
+- "Phi Vụ Động Trời" là tên tiếng Việt chính thức của phim hoạt hình Disney "Zootopia" (Judy Hopps và Nick Wilde), KHÔNG PHẢI là phim heist hay cướp ngân hàng.
+
 THÔNG TIN QUAN TRỌNG VỀ TÍNH NĂNG HỆ THỐNG:
 - Giao diện người dùng của hệ thống ĐÃ TÍCH HỢP SẴN tính năng phát Trailer YouTube trực tiếp và nút xem Trailer YouTube cho từng bộ phim.
 - Khi người dùng yêu cầu xem trailer, tìm trailer hoặc nhắc đến "trailer", "youtube trailer": Bạn TUYỆT ĐỐI KHÔNG được từ chối hoặc nói rằng mình "không có khả năng truy cập YouTube / không phát được trailer". Hãy luôn nhiệt tình giới thiệu các bộ phim được yêu cầu và hướng dẫn người dùng bấm vào nút "Trailer" ngay dưới thẻ phim để xem video trực tiếp!
-- "Phi Vụ Động Trời" là tên tiếng Việt chính thức của phim hoạt hình Disney "Zootopia" (Judy Hopps và Nick Wilde), KHÔNG PHẢI là phim heist hay cướp ngân hàng.
 
 QUY TẮC PHẢN HỒI BẮT BUỘC:
 1. Khi người dùng yêu cầu danh sách phim hoặc hỏi trailer: Luôn nhiệt tình giới thiệu các bộ phim nổi bật; trình bày súc tích, cô đọng (1-2 câu điểm nhấn cho mỗi phim) để câu trả lời luôn trọn vẹn và không bao giờ bị cắt ngắn dòng cuối.
