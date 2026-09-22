@@ -370,6 +370,45 @@ class MovieChatbot:
             print(f"[TMDB] get_movie_trailer error: {e}")
         return None
 
+    # ================= VIDLINK / STREAMING SERVICES =================
+    def get_mal_id(self, anime_title):
+        """Tìm kiếm ID trên MyAnimeList (MAL) từ tên Anime"""
+        try:
+            clean_title = str(anime_title).strip()
+            # Sử dụng MyAnimeList prefix search API nhanh và chính xác
+            url = f"https://myanimelist.net/search/prefix.json?type=anime&keyword={clean_title}&v=1"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            res = requests.get(url, headers=headers, timeout=5).json()
+            items = res.get('categories', [{}])[0].get('items', [])
+            if items:
+                return items[0]['id'], items[0].get('name', clean_title)
+        except Exception as e:
+            print(f"[MAL] get_mal_id error for '{anime_title}': {e}")
+        return None, None
+
+    def get_vidlink_anime_url(self, anime_title_or_mal_id, episode=1, sub_or_dub="sub"):
+        """Tạo đường dẫn nhúng iframe Anime Vidlink: https://vidlink.pro/anime/{MALid}/{number}/{subOrDub}?fallback=true&autoplay=false"""
+        try:
+            mal_id = None
+            if str(anime_title_or_mal_id).isdigit():
+                mal_id = str(anime_title_or_mal_id)
+            else:
+                found_id, _ = self.get_mal_id(str(anime_title_or_mal_id))
+                if found_id:
+                    mal_id = str(found_id)
+
+            if mal_id:
+                return f"https://vidlink.pro/anime/{mal_id}/{episode}/{sub_or_dub}?fallback=true&autoplay=false"
+        except Exception as e:
+            print(f"[VIDLINK] get_vidlink_anime_url error: {e}")
+        return None
+
+    def get_vidlink_movie_url(self, tmdb_id):
+        """Tạo đường dẫn nhúng iframe Phim Vidlink với autoplay=false: https://vidlink.pro/movie/{tmdbId}?autoplay=false"""
+        if tmdb_id:
+            return f"https://vidlink.pro/movie/{tmdb_id}?autoplay=false"
+        return None
+
     # ================= INTENT EXTRACTION =================
     def extract_intent(self, user_input, history=None):
         """Sử dụng Groq LLM để phân tích ý định tìm kiếm đa chiều"""
