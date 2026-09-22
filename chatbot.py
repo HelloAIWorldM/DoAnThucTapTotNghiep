@@ -2,6 +2,8 @@ import sys
 import json
 import re
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 import random
 
 if sys.platform == "win32":
@@ -16,6 +18,20 @@ try:
 except ImportError:
     Groq = None
 
+def create_pooled_session():
+    """Tạo requests.Session dùng chung với Connection Pool để tái sử dụng TCP/TLS connection"""
+    session = requests.Session()
+    retries = Retry(
+        total=2,
+        backoff_factor=0.3,
+        status_forcelist=[429, 500, 502, 503, 504],
+        raise_on_status=False
+    )
+    adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
 class MovieChatbot:
     def __init__(self, groq_api_key=None, tmdb_api_key=None, gemini_api_key=None):
         self.tmdb_key = tmdb_api_key
@@ -25,6 +41,18 @@ class MovieChatbot:
         self.gemini_model = "gemini-3.5-flash-lite"
         self.is_active = False
         self.client = None
+
+        # Khởi tạo HTTP Session dùng chung với Connection Pool
+        self.session = create_pooled_session()
+
+        # Bộ nhớ đệm In-Memory Caches để tăng tốc độ phản hồi 0ms
+        self._cache_search = {}
+        self._cache_recommendations = {}
+        self._cache_studios = {}
+        self._cache_person = {}
+        self._cache_discover = {}
+        self._cache_trailer = {}
+        self._cache_mal = {}
 
         if self.gemini_key and self.gemini_key.strip():
             self.is_active = True
@@ -141,16 +169,19 @@ class MovieChatbot:
 
     # ================= TMDB API SERVICES =================
     def search_movie(self, title):
-        """Tìm phim theo tiêu đề trên TMDB, ưu tiên khớp chính xác và độ phổ biến"""
+        """Tìm phim theo tiêu đề trên TMDB, ưu tiên khớp chính xác và độ phổ biến (có cache)"""
         try:
             clean_query = title.strip().lower()
+            if clean_query in self._cache_search:
+                return self._cache_search[clean_query]
+
             url = f"https://api.themoviedb.org/3/search/movie?api_key={self.tmdb_key}&query={title}&language=vi-VN"
-            res = requests.get(url, timeout=5).json()
+            res = self.session.get(url, timeout=5).json()
             results = res.get('results', [])
             if not results:
                 # Fallback search tiếng Anh nếu tiếng Việt không có
                 url_en = f"https://api.themoviedb.org/3/search/movie?api_key={self.tmdb_key}&query={title}&language=en-US"
-                results = requests.get(url_en, timeout=5).json().get('results', [])
+                results = self.session.get(url_en, timeout=5).json().get('results', [])
 
             if results:
                 # Ưu tiên: 1. Khớp chính xác tiêu đề tiếng Việt hoặc tiếng Anh -> 2. Có ảnh poster -> 3. Số lượt bình chọn vote_count
@@ -165,14 +196,20 @@ class MovieChatbot:
 
                 results.sort(key=rank_movie, reverse=True)
 
+            if len(self._cache_search) < 200:
+                self._cache_search[clean_query] = results
             return results
         except Exception as e:
             print(f"[TMDB] search_movie error: {e}")
             return []
 
     def get_movie_recommendations(self, movie_title):
-        """Lấy danh sách phim tương tự từ một tên phim"""
+        """Lấy danh sách phim tương tự từ một tên phim (có cache)"""
         try:
+            clean_title = movie_title.strip().lower()
+            if clean_title in self._cache_recommendations:
+                return self._cache_recommendations[clean_title]
+
             results = self.search_movie(movie_title)
             if not results:
                 return [], None
@@ -184,25 +221,32 @@ class MovieChatbot:
 
             # Thử lấy recommendations
             rec_url = f"https://api.themoviedb.org/3/movie/{target_id}/recommendations?api_key={self.tmdb_key}&language=vi-VN"
-            rec_res = requests.get(rec_url, timeout=5).json().get('results', [])
+            rec_res = self.session.get(rec_url, timeout=5).json().get('results', [])
 
             # Nếu ít hơn 3 phim, lấy thêm từ endpoint similar
             if len(rec_res) < 3:
                 sim_url = f"https://api.themoviedb.org/3/movie/{target_id}/similar?api_key={self.tmdb_key}&language=vi-VN"
-                rec_res += requests.get(sim_url, timeout=5).json().get('results', [])
+                rec_res += self.session.get(sim_url, timeout=5).json().get('results', [])
 
             filtered = [m for m in rec_res if m.get('poster_path') and m.get('vote_average', 0) > 4.5]
             titles = [m['title'] for m in filtered[:5]]
-            return titles, display_target
+            res_tuple = (titles, display_target)
+            if len(self._cache_recommendations) < 200:
+                self._cache_recommendations[clean_title] = res_tuple
+            return res_tuple
         except Exception as e:
             print(f"[TMDB] get_movie_recommendations error: {e}")
             return [], None
 
     def get_movies_by_person(self, person_name):
-        """Tìm phim theo diễn viên hoặc đạo diễn"""
+        """Tìm phim theo diễn viên hoặc đạo diễn (có cache)"""
         try:
+            clean_person = person_name.strip().lower()
+            if clean_person in self._cache_person:
+                return self._cache_person[clean_person]
+
             search_url = f"https://api.themoviedb.org/3/search/person?api_key={self.tmdb_key}&query={person_name}&language=vi-VN"
-            res = requests.get(search_url, timeout=5).json()
+            res = self.session.get(search_url, timeout=5).json()
             results = res.get('results', [])
             if not results:
                 return [], None
@@ -213,7 +257,7 @@ class MovieChatbot:
 
             # Lấy credits phim của nhân vật đó
             credits_url = f"https://api.themoviedb.org/3/person/{person_id}/movie_credits?api_key={self.tmdb_key}&language=vi-VN"
-            cred_res = requests.get(credits_url, timeout=5).json()
+            cred_res = self.session.get(credits_url, timeout=5).json()
 
             # Kết hợp cast và crew (nếu là đạo diễn)
             movies = cred_res.get('cast', []) + [c for c in cred_res.get('crew', []) if c.get('job') == 'Director']
@@ -231,22 +275,28 @@ class MovieChatbot:
                     filtered.append(m)
 
             titles = [m.get('title') or m.get('original_title') for m in filtered[:5]]
-            return titles, person_official_name
+            res_tuple = (titles, person_official_name)
+            if len(self._cache_person) < 200:
+                self._cache_person[clean_person] = res_tuple
+            return res_tuple
         except Exception as e:
             print(f"[TMDB] get_movies_by_person error: {e}")
             return [], None
 
     def get_movies_by_studio(self, studio_name):
-        """Lấy danh sách tác phẩm kinh điển, điểm cao của một hãng phim / vũ trụ điện ảnh"""
+        """Lấy danh sách tác phẩm kinh điển, điểm cao của một hãng phim / vũ trụ điện ảnh (có cache)"""
         try:
             clean_name = studio_name.lower().strip()
+            if clean_name in self._cache_studios:
+                return self._cache_studios[clean_name]
+
             company_id = self.studios_map.get(clean_name)
             official_name = studio_name
 
             if not company_id:
                 # Tìm kiếm công ty trên TMDB nếu chưa có trong map
                 search_url = f"https://api.themoviedb.org/3/search/company?api_key={self.tmdb_key}&query={studio_name}"
-                c_res = requests.get(search_url, timeout=5).json().get('results', [])
+                c_res = self.session.get(search_url, timeout=5).json().get('results', [])
                 if c_res:
                     company_id = c_res[0]['id']
                     official_name = c_res[0].get('name', studio_name)
@@ -256,12 +306,12 @@ class MovieChatbot:
 
             # Ưu tiên lấy theo vote_count.desc để ra các phim kinh điển, nổi tiếng nhất (như Iron Man, Avengers, The Dark Knight)
             url = f"https://api.themoviedb.org/3/discover/movie?api_key={self.tmdb_key}&with_companies={company_id}&sort_by=vote_count.desc&vote_count.gte=100&language=vi-VN"
-            res = requests.get(url, timeout=5).json().get('results', [])
+            res = self.session.get(url, timeout=5).json().get('results', [])
 
             if not res or len(res) < 3:
                 # Fallback nếu vote_count quá cao ít kết quả
                 url_pop = f"https://api.themoviedb.org/3/discover/movie?api_key={self.tmdb_key}&with_companies={company_id}&sort_by=popularity.desc&vote_count.gte=30&language=vi-VN"
-                res += requests.get(url_pop, timeout=5).json().get('results', [])
+                res += self.session.get(url_pop, timeout=5).json().get('results', [])
 
             seen_ids = set()
             filtered = []
@@ -272,14 +322,22 @@ class MovieChatbot:
                     filtered.append(m)
 
             titles = [(m.get('title') or m.get('original_title')) for m in filtered[:6]]
-            return [t for t in titles if t], official_name
+            clean_res = [t for t in titles if t]
+            res_tuple = (clean_res, official_name)
+            if len(self._cache_studios) < 200:
+                self._cache_studios[clean_name] = res_tuple
+            return res_tuple
         except Exception as e:
             print(f"[TMDB] get_movies_by_studio error: {e}")
             return [], studio_name
 
     def discover_movies(self, genre_keyword=None, year=None, country=None):
-        """Khám phá phim theo thể loại, năm hoặc quốc gia"""
+        """Khám phá phim theo thể loại, năm hoặc quốc gia (có cache)"""
         try:
+            cache_key = f"{genre_keyword}_{year}_{country}".lower()
+            if cache_key in self._cache_discover:
+                return self._cache_discover[cache_key]
+
             params = {
                 'api_key': self.tmdb_key,
                 'sort_by': 'popularity.desc',
@@ -319,12 +377,15 @@ class MovieChatbot:
                     params['with_original_language'] = lang_code
 
             url = "https://api.themoviedb.org/3/discover/movie"
-            res = requests.get(url, params=params, timeout=5).json()
+            res = self.session.get(url, params=params, timeout=5).json()
             results = res.get('results', [])
 
             filtered = [m for m in results if m.get('poster_path') and m.get('vote_average', 0) > 5.0]
             titles = [(m.get('title') or m.get('original_title')) for m in filtered[:8]]
-            return [t for t in titles if t]
+            clean_res = [t for t in titles if t]
+            if len(self._cache_discover) < 200:
+                self._cache_discover[cache_key] = clean_res
+            return clean_res
         except Exception as e:
             print(f"[TMDB] discover_movies error: {e}")
             return []
@@ -335,7 +396,7 @@ class MovieChatbot:
             # Lấy ngẫu nhiên từ top_rated hoặc trending
             page = random.randint(1, 5)
             url = f"https://api.themoviedb.org/3/movie/top_rated?api_key={self.tmdb_key}&language=vi-VN&page={page}"
-            res = requests.get(url, timeout=5).json()
+            res = self.session.get(url, timeout=5).json()
             results = res.get('results', [])
             valid_movies = [m for m in results if m.get('poster_path') and m.get('overview')]
             if valid_movies:
@@ -346,42 +407,57 @@ class MovieChatbot:
         return ["Inception"]
 
     def get_movie_trailer(self, movie_id):
-        """Lấy key YouTube Trailer của phim từ TMDB"""
+        """Lấy key YouTube Trailer của phim từ TMDB (có cache)"""
         try:
+            if movie_id in self._cache_trailer:
+                return self._cache_trailer[movie_id]
+
             # Thử lấy trailer tiếng Việt
             url = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={self.tmdb_key}&language=vi-VN"
-            res = requests.get(url, timeout=5).json().get('results', [])
+            res = self.session.get(url, timeout=5).json().get('results', [])
 
             # Nếu không có video tiếng Việt, thử tiếng Anh (phần lớn trailer lưu ở en-US)
             if not res:
                 url_en = f"https://api.themoviedb.org/3/movie/{movie_id}/videos?api_key={self.tmdb_key}&language=en-US"
-                res = requests.get(url_en, timeout=5).json().get('results', [])
+                res = self.session.get(url_en, timeout=5).json().get('results', [])
 
             youtube_videos = [v for v in res if v.get('site') == 'YouTube']
             # Ưu tiên type='Trailer', sau đó 'Teaser'
             trailers = [v for v in youtube_videos if v.get('type') == 'Trailer']
+            trailer_key = None
             if trailers:
                 # Ưu tiên trailer chính thức (official=True)
                 official = [v for v in trailers if v.get('official') is True]
-                return official[0]['key'] if official else trailers[0]['key']
+                trailer_key = official[0]['key'] if official else trailers[0]['key']
             elif youtube_videos:
-                return youtube_videos[0]['key']
+                trailer_key = youtube_videos[0]['key']
+
+            if trailer_key and len(self._cache_trailer) < 300:
+                self._cache_trailer[movie_id] = trailer_key
+            return trailer_key
         except Exception as e:
             print(f"[TMDB] get_movie_trailer error: {e}")
         return None
 
     # ================= VIDLINK / STREAMING SERVICES =================
     def get_mal_id(self, anime_title):
-        """Tìm kiếm ID trên MyAnimeList (MAL) từ tên Anime"""
+        """Tìm kiếm ID trên MyAnimeList (MAL) từ tên Anime (có cache)"""
         try:
             clean_title = str(anime_title).strip()
+            cache_key = clean_title.lower()
+            if cache_key in self._cache_mal:
+                return self._cache_mal[cache_key]
+
             # Sử dụng MyAnimeList prefix search API nhanh và chính xác
             url = f"https://myanimelist.net/search/prefix.json?type=anime&keyword={clean_title}&v=1"
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            res = requests.get(url, headers=headers, timeout=5).json()
+            res = self.session.get(url, headers=headers, timeout=5).json()
             items = res.get('categories', [{}])[0].get('items', [])
             if items:
-                return items[0]['id'], items[0].get('name', clean_title)
+                res_tuple = (items[0]['id'], items[0].get('name', clean_title))
+                if len(self._cache_mal) < 300:
+                    self._cache_mal[cache_key] = res_tuple
+                return res_tuple
         except Exception as e:
             print(f"[MAL] get_mal_id error for '{anime_title}': {e}")
         return None, None
@@ -461,7 +537,7 @@ Ví dụ:
                         "contents": [{"parts": [{"text": analysis_prompt}]}],
                         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 200}
                     }
-                    res = requests.post(url, json=payload, timeout=8)
+                    res = self.session.post(url, json=payload, timeout=8)
                     if res.status_code == 200:
                         res.encoding = 'utf-8'
                         data_json = res.json()
@@ -638,7 +714,7 @@ QUY TẮC PHẢN HỒI BẮT BUỘC:
                 }
 
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:streamGenerateContent?key={self.gemini_key}&alt=sse"
-                res = requests.post(url, json=payload, stream=True, timeout=15)
+                res = self.session.post(url, json=payload, stream=True, timeout=15)
 
                 if res.status_code == 200:
                     for raw_line in res.iter_lines():

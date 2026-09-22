@@ -2,7 +2,7 @@
 name = "Movie Chat"
 user_env = []
 session_timeout = 3600
-cache = false
+cache = true
 
 [UI]
 name = "Movie Chat"

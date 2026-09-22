@@ -25,21 +25,29 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 bot = MovieChatbot(GROQ_API_KEY, TMDB_API_KEY, GEMINI_API_KEY)
 
+# Bộ nhớ đệm In-Memory Cache lưu thông tin phim đã tra cứu (0ms latency cho các lượt xem lại)
+MOVIE_INFO_CACHE = {}
+
 def fetch_single_movie_info(title):
-    """Lấy chi tiết một bộ phim từ TMDB (poster, rating, năm, thời lượng, thể loại, trailer)"""
+    """Lấy chi tiết một bộ phim từ TMDB với batching append_to_response và bộ nhớ đệm"""
+    clean_key = title.strip().lower()
+    if clean_key in MOVIE_INFO_CACHE:
+        return MOVIE_INFO_CACHE[clean_key]
+
     try:
+        session = bot.session
         search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={title}&language=vi-VN"
-        response = requests.get(search_url, timeout=5)
+        response = session.get(search_url, timeout=5)
         if response.status_code == 200:
             results = response.json().get('results', [])
             if not results:
                 # Fallback search tiếng Anh
                 search_url_en = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={title}&language=en-US"
-                results = requests.get(search_url_en, timeout=5).json().get('results', [])
+                results = session.get(search_url_en, timeout=5).json().get('results', [])
 
             if results:
                 # Ưu tiên khớp chính xác tên phim và phim có nhiều lượt đánh giá nhất (tránh nhầm các phần phim placeholder)
-                clean_query = title.strip().lower()
+                clean_query = clean_key
                 def rank_movie(m):
                     t = (m.get('title') or '').strip().lower()
                     ot = (m.get('original_title') or '').strip().lower()
@@ -54,13 +62,14 @@ def fetch_single_movie_info(title):
 
                 movie_id = data.get('id')
                 poster_path = data.get('poster_path')
-                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://placehold.co/500x750/1e293b/ffffff?text=No+Poster"
+                # Tối ưu kích thước poster sang w342 (sắc nét Retina cho khung 160px, giảm 50% dung lượng tải)
+                poster_url = f"https://image.tmdb.org/t/p/w342{poster_path}" if poster_path else "https://placehold.co/342x513/1e293b/ffffff?text=No+Poster"
                 year = data.get('release_date', 'N/A')[:4]
                 rating = round(data.get('vote_average', 0), 1)
 
-                # Lấy thêm chi tiết: thời lượng, thể loại chi tiết
-                detail_url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=vi-VN"
-                detail_res = requests.get(detail_url, timeout=5).json()
+                # Gom chi tiết (thời lượng, thể loại, tóm tắt) và video trailer trong 1 request duy nhất với append_to_response!
+                detail_url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=vi-VN&append_to_response=videos&include_video_language=vi,en"
+                detail_res = session.get(detail_url, timeout=5).json()
 
                 genres = [g['name'] for g in detail_res.get('genres', [])[:3]]
                 runtime = detail_res.get('runtime')
@@ -69,11 +78,24 @@ def fetch_single_movie_info(title):
                 overview = detail_res.get('overview') or data.get('overview')
                 if not overview:
                     # Fallback overview tiếng Anh nếu tiếng Việt rỗng
-                    detail_en = requests.get(f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=en-US", timeout=5).json()
+                    detail_en = session.get(f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=en-US", timeout=5).json()
                     overview = detail_en.get('overview', 'Chưa có mô tả nội dung.')
 
-                # Lấy trailer key YouTube
-                trailer_key = bot.get_movie_trailer(movie_id)
+                # Trích xuất trailer key YouTube trực tiếp từ kết quả append_to_response (không cần thêm request ngoài)
+                trailer_key = None
+                videos_res = detail_res.get('videos', {}).get('results', [])
+                if videos_res:
+                    yt_videos = [v for v in videos_res if v.get('site') == 'YouTube']
+                    trailers = [v for v in yt_videos if v.get('type') == 'Trailer']
+                    if trailers:
+                        official = [v for v in trailers if v.get('official') is True]
+                        trailer_key = official[0]['key'] if official else trailers[0]['key']
+                    elif yt_videos:
+                        trailer_key = yt_videos[0]['key']
+
+                # Nếu chưa tìm thấy trailer, dùng hàm dự phòng từ bot
+                if not trailer_key and movie_id:
+                    trailer_key = bot.get_movie_trailer(movie_id)
 
                 link_tmdb = f"https://www.themoviedb.org/movie/{movie_id}"
                 movie_name = data.get('title') or title
@@ -94,7 +116,7 @@ def fetch_single_movie_info(title):
                     vidlink_url = bot.get_vidlink_movie_url(movie_id)
                     vidlink_type = "movie"
 
-                return {
+                movie_info = {
                     "id": movie_id,
                     "title": movie_name,
                     "poster": poster_url,
@@ -109,6 +131,14 @@ def fetch_single_movie_info(title):
                     "vidlink_url": vidlink_url,
                     "vidlink_type": vidlink_type
                 }
+
+                # Lưu vào cache in-memory
+                if len(MOVIE_INFO_CACHE) < 300:
+                    MOVIE_INFO_CACHE[clean_key] = movie_info
+                    if movie_name:
+                        MOVIE_INFO_CACHE[movie_name.strip().lower()] = movie_info
+
+                return movie_info
     except Exception as e:
         print(f"[ERROR] Failed to fetch movie '{title}': {e}")
     return None
@@ -355,10 +385,15 @@ async def main(message: cl.Message):
                     <div style="
                         width: 160px; 
                         min-width: 160px; 
-                        background-image: url('{safe_poster}'); 
-                        background-size: cover; 
-                        background-position: center; 
+                        position: relative;
+                        overflow: hidden;
+                        background: #0f172a;
                         flex-shrink: 0;">
+                        <img src="{safe_poster}" alt="{safe_title}" loading="lazy" decoding="async" style="
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            display: block;" />
                     </div>
                     
                     <div style="flex: 1; padding: 18px 22px; display: flex; flex-direction: column; min-width: 0;">

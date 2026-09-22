@@ -82,6 +82,8 @@ body {
     background: var(--card-bg) !important;
     backdrop-filter: blur(12px);
     box-shadow: 0 6px 24px var(--card-shadow) !important;
+    content-visibility: auto;
+    contain-intrinsic-size: 230px;
 }
 
 .movie-card:hover {
