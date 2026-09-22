@@ -101,21 +101,6 @@ def fetch_single_movie_info(title):
                 movie_name = data.get('title') or title
                 link_search = f"https://www.google.com/search?q=xem+phim+{urllib.parse.quote_plus(movie_name)}+vietsub"
 
-                # Kiểm tra và tạo URL Vidlink (Anime: MyAnimeList ID với fallback=true&autoplay=false, Phim: TMDB ID)
-                is_anime = any(kw in str(g).lower() for g in genres for kw in ['hoạt hình', 'anime', 'animation']) or data.get('original_language') == 'ja'
-                vidlink_url = None
-                vidlink_type = "movie"
-
-                if is_anime:
-                    search_anime_title = data.get('original_title') or movie_name
-                    vidlink_url = bot.get_vidlink_anime_url(search_anime_title, episode=1, sub_or_dub="sub")
-                    if vidlink_url:
-                        vidlink_type = "anime"
-
-                if not vidlink_url and movie_id:
-                    vidlink_url = bot.get_vidlink_movie_url(movie_id)
-                    vidlink_type = "movie"
-
                 movie_info = {
                     "id": movie_id,
                     "title": movie_name,
@@ -127,9 +112,7 @@ def fetch_single_movie_info(title):
                     "genres": genres,
                     "trailer_key": trailer_key,
                     "link_tmdb": link_tmdb,
-                    "link_search": link_search,
-                    "vidlink_url": vidlink_url,
-                    "vidlink_type": vidlink_type
+                    "link_search": link_search
                 }
 
                 # Lưu vào cache in-memory
@@ -227,27 +210,6 @@ async def on_find_similar(action: cl.Action):
     """Gợi ý các phim tương tự phim đã chọn"""
     title = action.payload.get("title")
     await main(cl.Message(content=f"Gợi ý cho tôi các bộ phim có phong cách hoặc cốt truyện tương tự như phim {title}"))
-
-@cl.action_callback("play_vidlink")
-async def on_play_vidlink(action: cl.Action):
-    """Phát video nhúng trực tiếp qua Vidlink Player (Anime hoặc Phim)"""
-    vidlink_url = action.payload.get("vidlink_url")
-    title = action.payload.get("title")
-    media_type = action.payload.get("type", "movie")
-
-    if vidlink_url:
-        type_text = "Anime" if media_type == "anime" else "Phim"
-        safe_url = html.escape(vidlink_url, quote=True)
-        player_html = f"""
-        <div style="border-radius: 16px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.35); margin: 12px 0; border: 1px solid rgba(255,255,255,0.12); background: #0f172a;">
-            <div style="padding: 10px 16px; background: linear-gradient(135deg, #1e1b4b, #312e81); color: white; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
-                <span>Trình phát {type_text} (Vidlink): {html.escape(title)}</span>
-                <a href="{safe_url}" target="_blank" style="color: #38bdf8; text-decoration: underline; font-size: 12px; font-weight: 500;">Mở tab mới</a>
-            </div>
-            <iframe src="{safe_url}" width="100%" height="450" frameborder="0" allowfullscreen style="display: block; width: 100%; border: none;"></iframe>
-        </div>
-        """
-        await cl.Message(content=player_html).send()
 
 # ================= MAIN CHAT HANDLER =================
 
@@ -354,26 +316,6 @@ async def main(message: cl.Message):
                     </a>
                     """
 
-                # Nút xem phim/anime qua Vidlink Player (hỗ trợ Anime MAL & Phim TMDB)
-                vidlink_html = ""
-                if info.get('vidlink_url'):
-                    safe_vidlink_url = html.escape(info['vidlink_url'], quote=True)
-                    btn_text = "Xem Anime (Vidlink)" if info.get('vidlink_type') == 'anime' else "Xem Phim (Vidlink)"
-                    vidlink_html = f"""
-                    <a href="{safe_vidlink_url}" target="_blank" class="movie-btn" style="
-                        padding: 8px 16px; 
-                        border-radius: 10px; 
-                        font-size: 13px; 
-                        font-weight: 600; 
-                        text-decoration: none; 
-                        background: linear-gradient(135deg, #059669, #10b981);
-                        color: white; 
-                        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.25);
-                        display: inline-flex; align-items: center; gap: 6px;">
-                        {btn_text}
-                    </a>
-                    """
-
                 card = f"""
                 <div class="movie-card" style="
                     display: flex; 
@@ -433,7 +375,6 @@ async def main(message: cl.Message):
                         
                         <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; align-items: center;">
                             {trailer_html}
-                            {vidlink_html}
                             <a href="{safe_link_tmdb}" target="_blank" class="movie-btn movie-btn-secondary" style="
                                 padding: 8px 16px; 
                                 border-radius: 10px; 
@@ -468,17 +409,6 @@ async def main(message: cl.Message):
                             name="play_trailer",
                             payload={"title": info['title'], "trailer_key": info['trailer_key']},
                             label=f"Trailer: {info['title'][:14]}"
-                        )
-                    )
-
-                # Thêm nút bấm phát Vidlink trực tiếp trong chat nếu có link
-                if info.get('vidlink_url'):
-                    type_label = "Anime" if info.get('vidlink_type') == 'anime' else "Phim"
-                    action_buttons.append(
-                        cl.Action(
-                            name="play_vidlink",
-                            payload={"vidlink_url": info['vidlink_url'], "title": info['title'], "type": info.get('vidlink_type', 'movie')},
-                            label=f"Phát {type_label}: {info['title'][:14]}"
                         )
                     )
 
